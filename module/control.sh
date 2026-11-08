@@ -97,9 +97,32 @@ module_loaded() {
     return 1
 }
 
+# the vendor fixups are only built for 6.6/6.12, so a declared module can
+# legitimately have no .ko for the running KMI; skip it instead of failing
+module_ko() {
+    local name=$1
+    set -- "$MODDIR"/bin/*/"$name".ko
+    [ -f "$1" ] && printf '%s\n' "$name"
+}
+
+available_modules() {
+    local m
+    for m in $(conf modules); do
+        module_ko "$m"
+    done
+}
+
+available_count() {
+    local m n=0
+    for m in $(available_modules); do
+        n=$((n + 1))
+    done
+    echo "$n"
+}
+
 loaded_count() {
     local m n=0
-    for m in $(conf modules); do
+    for m in $(available_modules); do
         module_loaded "$m" && n=$((n + 1))
     done
     echo "$n"
@@ -111,8 +134,8 @@ load_modules() {
         set -- "$MODDIR"/bin/*/"$m".ko
         ko=$1
         if [ ! -f "$ko" ]; then
-            echo "missing $m.ko" >&2
-            return 1
+            echo "skip $m: no .ko built for this KMI"
+            continue
         fi
         if module_loaded "$m"; then
             echo "$m already loaded"
@@ -130,7 +153,7 @@ load_modules() {
 unload_modules() {
     local m rev=""
     # unload in reverse order, the vendor fixups sit on top of the core module
-    for m in $(conf modules); do
+    for m in $(available_modules); do
         rev="$m $rev"
     done
     for m in $rev; do
@@ -196,12 +219,12 @@ boot() {
         return 0
     fi
 
-    [ -n "$(conf modules)" ] || {
+    [ -n "$(available_modules)" ] || {
         log_msg "no modules declared"
         return 1
     }
 
-    printf '%s\n' "$(conf modules)" > "$MARK"
+    printf '%s\n' "$(available_modules)" > "$MARK"
     sync
     load_modules
     rc=$?
@@ -209,7 +232,7 @@ boot() {
     sync
 
     if [ "$rc" -eq 0 ]; then
-        log_msg "loaded $(conf modules)"
+        log_msg "loaded $(echo $(available_modules))"
     else
         log_msg "install failed rc=$rc"
     fi
@@ -218,8 +241,8 @@ boot() {
 
 show_status() {
     local names total state autoload kmi
-    names=$(conf modules)
-    total=$(printf '%s\n' $names | wc -l)
+    names=$(available_modules)
+    total=$(available_count)
     case "$(loaded_count)" in
     0) state=unloaded ;;
     *) [ "$(loaded_count)" -eq "$total" ] && state=loaded || state=partial ;;

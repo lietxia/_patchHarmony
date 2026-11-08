@@ -102,7 +102,7 @@ jobs:
         run: |
           args=""
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            args="-Pversion=$GITHUB_REF_NAME"
+            args="-Pversion=${GITHUB_REF_NAME#v}"
           fi
           gradle --no-daemon packageModule $args
           ls -lh build/dist

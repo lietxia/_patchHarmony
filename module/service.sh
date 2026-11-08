@@ -25,6 +25,25 @@ conf() {
     sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n 1
 }
 
+# insmod is a busybox applet; KernelSU runs scripts with ASH_STANDALONE so it
+# resolves, but fall back to an explicit busybox when it does not
+insmod_ko() {
+    local f=$1 bb
+    shift
+    if command -v insmod >/dev/null 2>&1; then
+        insmod "$f" "$@" 2>&1
+        return $?
+    fi
+    for bb in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox \
+        /data/adb/magisk/busybox "${MAGISKTMP:-/nonexistent}/busybox"; do
+        [ -x "$bb" ] || continue
+        "$bb" insmod "$f" "$@" 2>&1
+        return $?
+    done
+    echo "insmod not found"
+    return 127
+}
+
 install() {
     local m ko out rc
     for m in $(conf modules); do
@@ -34,7 +53,7 @@ install() {
             log "missing $m.ko"
             return 1
         }
-        out=$(insmod "$ko" $(conf "$m") 2>&1)
+        out=$(insmod_ko "$ko" $(conf "$m"))
         rc=$?
         [ -n "$out" ] && log "insmod $m: $out"
         [ "$rc" -eq 0 ] || return "$rc"

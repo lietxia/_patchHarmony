@@ -14,11 +14,29 @@ require_arm64() {
     [ "$ARCH" = arm64 ] || [ "$(uname -m)" = aarch64 ] || abort "! arm64 only"
 }
 
+# vendor kernels often drop the androidNN tag from uname -r; fall back to the
+# launch API level, because the KMI follows the launch, not the OTA version
+api_tag() {
+    case $1 in
+    31 | 32) echo android12 ;;
+    3[3-9] | 4[0-9]) echo "android$(($1 - 20))" ;;
+    20[2-9][0-9][0-9][0-9]) echo "android$((${1%??} - 2009))" ;;
+    esac
+}
+
 detect_kmi() {
-    local release ver tag
+    local release ver tag lvl
     release=$(uname -r)
     ver=$(printf '%s' "$release" | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
     tag=$(printf '%s' "$release" | sed -n 's/.*\(android[0-9][0-9]*\).*/\1/p')
+    if [ -z "$tag" ]; then
+        for p in ro.board.first_api_level ro.product.first_api_level; do
+            lvl=$(getprop "$p" 2>/dev/null)
+            [ -n "$lvl" ] || continue
+            tag=$(api_tag "$lvl")
+            [ -n "$tag" ] && break
+        done
+    fi
     [ -n "$ver" ] && [ -n "$tag" ] && echo "$tag-$ver"
 }
 
@@ -40,7 +58,7 @@ chmod_module() {
 }
 
 main() {
-    local kmi
+    local kmi autoload
     require_arm64
     unpack_static
 
@@ -51,7 +69,13 @@ main() {
     mkdir -p "$DATA"
     rm -f "$DATA/blocked" "$DATA/insmod"
 
+    # service.sh only insmods when this marker exists, so a fresh install has
+    # to create it, otherwise the module never loads at all. autoload=0 opts out.
+    autoload=$(sed -n 's/^autoload=//p' "$MODPATH/config.conf" 2>/dev/null | tail -n 1)
+    [ "$autoload" = "0" ] || : > "$DATA/auto"
+
     chmod_module
+    ui_print "- kmi    : $kmi"
     ui_print "- payload: $(ls "$MODPATH/bin/$kmi" | tr '\n' ' ')"
 }
 

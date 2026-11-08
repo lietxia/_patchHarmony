@@ -41,7 +41,7 @@ detect_kmi() {
 }
 
 unpack_static() {
-    unzip -o "$ZIPFILE" module.prop config.conf service.sh uninstall.sh \
+    unzip -o "$ZIPFILE" module.prop config.conf "*.sh" "webroot/*" \
         -d "$MODPATH" >&2 || abort "! unpack failed"
 }
 
@@ -55,6 +55,15 @@ chmod_module() {
     chmod 0755 "$MODPATH" "$MODPATH/bin" "$MODPATH"/*.sh
     chmod 0644 "$MODPATH"/module.prop "$MODPATH"/config.conf
     find "$MODPATH"/bin -name '*.ko' -exec chmod 0644 {} \;
+    # KernelSU's installer skips its own permission/secontext pass when
+    # SKIPUNZIP=1, so the WebUI payload has to be set up here
+    if [ -d "$MODPATH/webroot" ]; then
+        chmod 0755 "$MODPATH/webroot"
+        find "$MODPATH/webroot" -type f -exec chmod 0644 {} \;
+    fi
+    if command -v chcon >/dev/null 2>&1; then
+        chcon -R u:object_r:system_file:s0 "$MODPATH" 2>/dev/null || true
+    fi
 }
 
 main() {
